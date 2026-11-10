@@ -1,0 +1,9 @@
+node_modules/
+dist/
+out/
+out-test/
+*.vsix
+.vscode-test/
+
+# Packaged builds are published in releases/
+!releases/*.vsix

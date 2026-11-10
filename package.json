@@ -1,0 +1,287 @@
+{
+  "name": "read-aloud",
+  "displayName": "Read Aloud",
+  "description": "Read Markdown, text, code and PDF files aloud in a natural neural voice (Kokoro). Free, open source, and fully offline after a one-time model download.",
+  "version": "0.3.1",
+  "publisher": "read-aloud-oss",
+  "license": "MIT",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/read-aloud-oss/read-aloud"
+  },
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "text to speech",
+    "tts",
+    "read aloud",
+    "accessibility",
+    "kokoro",
+    "pdf",
+    "markdown"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      { "command": "readAloud.readSelection", "title": "Read Selection", "category": "Read Aloud", "icon": "$(unmute)" },
+      { "command": "readAloud.readFromCursor", "title": "Read From Cursor", "category": "Read Aloud" },
+      { "command": "readAloud.readFile", "title": "Read Whole File", "category": "Read Aloud" },
+      { "command": "readAloud.readPdf", "title": "Read PDF Aloud", "category": "Read Aloud" },
+      { "command": "readAloud.pauseResume", "title": "Pause / Resume", "category": "Read Aloud" },
+      { "command": "readAloud.stop", "title": "Stop", "category": "Read Aloud" },
+      { "command": "readAloud.faster", "title": "Faster", "category": "Read Aloud" },
+      { "command": "readAloud.slower", "title": "Slower", "category": "Read Aloud" },
+      { "command": "readAloud.showPlayer", "title": "Show Player", "category": "Read Aloud" },
+      { "command": "readAloud.selectVoice", "title": "Select Voice", "category": "Read Aloud" },
+      { "command": "readAloud.testVoice", "title": "Test Voice", "category": "Read Aloud" },
+      { "command": "readAloud.readClipboard", "title": "Read Clipboard Text", "category": "Read Aloud" },
+      { "command": "readAloud.followClaude", "title": "Follow Claude Replies", "category": "Read Aloud", "icon": "$(broadcast)" },
+      { "command": "readAloud.stopFollowing", "title": "Stop Following Claude", "category": "Read Aloud" },
+      { "command": "readAloud.benchmarkVoice", "title": "Benchmark Voice Speed", "category": "Read Aloud" },
+      { "command": "readAloud.downloadModel", "title": "Download Kokoro Voice Model Now", "category": "Read Aloud" }
+    ],
+    "keybindings": [
+      { "command": "readAloud.readSelection", "key": "ctrl+alt+r", "mac": "cmd+alt+r" },
+      { "command": "readAloud.followClaude", "key": "ctrl+alt+l", "mac": "cmd+alt+l" },
+      { "command": "readAloud.readFromCursor", "key": "ctrl+alt+shift+r", "mac": "cmd+alt+shift+r", "when": "editorTextFocus" },
+      { "command": "readAloud.readFile", "key": "ctrl+alt+shift+f", "mac": "cmd+alt+shift+f", "when": "editorTextFocus" },
+      { "command": "readAloud.pauseResume", "key": "ctrl+alt+p", "mac": "cmd+alt+p" },
+      { "command": "readAloud.stop", "key": "ctrl+alt+s", "mac": "cmd+alt+s" },
+      { "command": "readAloud.faster", "key": "ctrl+alt+=", "mac": "cmd+alt+=" },
+      { "command": "readAloud.slower", "key": "ctrl+alt+-", "mac": "cmd+alt+-" }
+    ],
+    "menus": {
+      "editor/context": [
+        { "command": "readAloud.readSelection", "group": "readAloud@1", "when": "editorTextFocus" },
+        { "command": "readAloud.readFromCursor", "group": "readAloud@2", "when": "editorTextFocus" },
+        { "command": "readAloud.readFile", "group": "readAloud@3", "when": "editorTextFocus" },
+        { "command": "readAloud.stop", "group": "readAloud@4", "when": "readAloud.active" }
+      ],
+      "editor/title": [
+        { "command": "readAloud.readSelection", "group": "navigation@99", "when": "resourceLangId == markdown || resourceLangId == plaintext || resourceExtname == .md" },
+        { "command": "readAloud.readSelection", "group": "navigation@98", "when": "activeWebviewPanelId && activeWebviewPanelId != readAloud.player" },
+        { "command": "readAloud.followClaude", "group": "navigation@99", "when": "activeWebviewPanelId && activeWebviewPanelId != readAloud.player" }
+      ],
+      "explorer/context": [
+        { "command": "readAloud.readPdf", "group": "readAloud@1", "when": "resourceExtname == .pdf" }
+      ],
+      "commandPalette": [
+        { "command": "readAloud.stopFollowing", "when": "readAloud.active" },
+        { "command": "readAloud.pauseResume", "when": "readAloud.active" },
+        { "command": "readAloud.stop", "when": "readAloud.active" },
+        { "command": "readAloud.faster", "when": "readAloud.active" },
+        { "command": "readAloud.slower", "when": "readAloud.active" }
+      ]
+    },
+    "configuration": {
+      "title": "Read Aloud",
+      "properties": {
+        "readAloud.provider": {
+          "type": "string",
+          "enum": ["kokoro", "native", "piper"],
+          "enumDescriptions": [
+            "Kokoro neural voice (natural, offline after a one-time model download).",
+            "Operating-system voice: 'say' on macOS, System.Speech on Windows, espeak-ng on Linux. No download, lower quality.",
+            "Piper neural voice via a locally installed 'piper' executable and a voice model you provide."
+          ],
+          "default": "kokoro",
+          "description": "Which text-to-speech engine to use."
+        },
+        "readAloud.fallbackToNative": {
+          "type": "boolean",
+          "default": true,
+          "description": "If the selected neural provider fails to start (for example the model cannot be downloaded), fall back to the operating-system voice."
+        },
+        "readAloud.playbackRate": {
+          "type": "number",
+          "default": 1.0,
+          "minimum": 0.5,
+          "maximum": 3.0,
+          "description": "Initial playback speed multiplier. Changed live with the Faster / Slower commands and the player slider."
+        },
+        "readAloud.prefetchSentences": {
+          "type": "integer",
+          "default": 8,
+          "minimum": 2,
+          "maximum": 16,
+          "description": "Upper limit on sentences synthesized ahead of playback. The buffer normally fills by time (readAloud.bufferSeconds)."
+        },
+        "readAloud.output": {
+          "type": "string",
+          "enum": ["panel", "system"],
+          "enumDescriptions": [
+            "Play inside the Read Aloud panel: gapless and instant pause/speed, but VS Code requires one click or key press in the panel each time it is opened.",
+            "Play through the operating system (PowerShell SoundPlayer on Windows, afplay on macOS, paplay/aplay/ffplay on Linux): no click needed. Pause restarts the current sentence and speed changes apply to upcoming sentences."
+          ],
+          "default": "panel",
+          "description": "Where the audio is played."
+        },
+        "readAloud.systemAudio.command": {
+          "type": "string",
+          "default": "",
+          "description": "Optional custom player for system output, e.g. \"mpv --no-video {file}\". Empty picks the platform default."
+        },
+        "readAloud.bufferSeconds": {
+          "type": "integer",
+          "default": 40,
+          "minimum": 5,
+          "maximum": 120,
+          "description": "Seconds of speech to keep synthesized ahead of playback. Raise it on slow computers to reduce pauses (uses more memory and CPU up front)."
+        },
+        "readAloud.stopOnEditorChange": {
+          "type": "boolean",
+          "default": true,
+          "description": "Stop reading when you switch to a different file."
+        },
+        "readAloud.maxSentenceLength": {
+          "type": "integer",
+          "default": 140,
+          "minimum": 80,
+          "maximum": 600,
+          "description": "Very long sentences are split into chunks of about this many characters. Smaller chunks start faster and react faster to Stop and voice changes; larger chunks give slightly smoother prosody."
+        },
+        "readAloud.markdown.codeBlocks": {
+          "type": "string",
+          "enum": ["announce", "skip", "read"],
+          "default": "announce",
+          "description": "What to do with fenced code blocks in Markdown: announce ('Code block skipped'), skip silently, or read the code."
+        },
+        "readAloud.pdf.announcePages": {
+          "type": "boolean",
+          "default": true,
+          "description": "Say the page number when a new PDF page starts."
+        },
+        "readAloud.follow.transcriptsDirectory": {
+          "type": "string",
+          "default": "",
+          "description": "Folder with Claude Code session transcripts. Empty uses ~/.claude/projects."
+        },
+        "readAloud.follow.pollIntervalMs": {
+          "type": "integer",
+          "default": 500,
+          "minimum": 100,
+          "maximum": 5000,
+          "description": "How often (ms) the Claude transcript is checked for new replies while following."
+        },
+        "readAloud.follow.readSummaries": {
+          "type": "boolean",
+          "default": true,
+          "description": "While following Claude, also read the short progress summaries shown between tool calls (the lines marked 'summary' in the chat)."
+        },
+        "readAloud.follow.announceStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Say a short confirmation when following starts, so you know audio is working."
+        },
+        "readAloud.kokoro.voice": {
+          "type": "string",
+          "default": "af_heart",
+          "enum": [
+            "af_heart", "af_bella", "af_nicole", "af_aoede", "af_kore", "af_sarah", "af_nova", "af_sky", "af_alloy", "af_jessica", "af_river",
+            "am_michael", "am_fenrir", "am_puck", "am_echo", "am_eric", "am_liam", "am_onyx", "am_adam", "am_santa",
+            "bf_emma", "bf_isabella", "bf_alice", "bf_lily", "bm_george", "bm_fable", "bm_lewis", "bm_daniel"
+          ],
+          "description": "Kokoro voice. af_/am_ = American English female/male, bf_/bm_ = British English female/male. Use 'Read Aloud: Select Voice' to hear samples. (Only English voices are available: the bundled phonemizer ships English data only.)"
+        },
+        "readAloud.kokoro.speed": {
+          "type": "number",
+          "default": 1.0,
+          "minimum": 0.5,
+          "maximum": 2.0,
+          "description": "Speaking rate used when synthesizing with Kokoro (independent of playback speed)."
+        },
+        "readAloud.kokoro.model": {
+          "type": "string",
+          "enum": ["fp32", "int8"],
+          "enumDescriptions": [
+            "Full precision, best quality (about 325 MB download).",
+            "8-bit quantized, slightly lower quality (about 92 MB download)."
+          ],
+          "default": "fp32",
+          "description": "Which Kokoro model file to download and use. Changing this triggers a new download."
+        },
+        "readAloud.kokoro.keepAliveMinutes": {
+          "type": "integer",
+          "default": 30,
+          "minimum": 0,
+          "maximum": 1440,
+          "description": "Minutes of inactivity after which the Kokoro helper process is shut down to free about 500 MB of memory. The next read then takes a few seconds to restart it. 0 keeps it running until VS Code closes."
+        },
+        "readAloud.kokoro.threads": {
+          "type": "integer",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 64,
+          "description": "CPU threads for speech synthesis. 0 lets ONNX Runtime decide (usually the number of physical cores). Try the number of performance cores if the benchmark is slow."
+        },
+        "readAloud.kokoro.downloadBaseUrl": {
+          "type": "string",
+          "default": "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0",
+          "description": "Base URL the Kokoro model and voice files are downloaded from. Point this at a mirror if GitHub is blocked on your network."
+        },
+        "readAloud.kokoro.modelDirectory": {
+          "type": "string",
+          "default": "",
+          "description": "Optional folder containing kokoro-v1.0.onnx / kokoro-v1.0.int8.onnx and voices-v1.0.bin that you downloaded yourself. Leave empty to use the extension's storage folder."
+        },
+        "readAloud.native.voice": {
+          "type": "string",
+          "default": "",
+          "description": "Operating-system voice name (for example 'Samantha' on macOS, 'Microsoft Zira Desktop' on Windows, 'en-us' on espeak-ng). Empty uses the system default."
+        },
+        "readAloud.native.wordsPerMinute": {
+          "type": "integer",
+          "default": 175,
+          "minimum": 80,
+          "maximum": 400,
+          "description": "Speaking rate for the operating-system voice."
+        },
+        "readAloud.piper.executable": {
+          "type": "string",
+          "default": "piper",
+          "description": "Path to the piper executable (or just 'piper' if it is on your PATH)."
+        },
+        "readAloud.piper.model": {
+          "type": "string",
+          "default": "",
+          "description": "Path to a Piper voice model (.onnx). The matching .onnx.json must sit next to it."
+        },
+        "readAloud.piper.speaker": {
+          "type": "integer",
+          "default": 0,
+          "description": "Speaker id for multi-speaker Piper models."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "compile-tests": "tsc -p tsconfig.test.json",
+    "test": "npm run compile-tests && node --test out-test/test/*.test.js",
+    "lint": "eslint src",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "package": "node scripts/package.mjs",
+    "vscode:prepublish": "npm run build"
+  },
+  "dependencies": {
+    "onnxruntime-node": "^1.21.0",
+    "phonemizer": "^1.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "@types/vscode": "^1.95.0",
+    "@vscode/vsce": "^3.9.2",
+    "esbuild": "^0.25.12",
+    "eslint": "^9.39.5",
+    "pdfjs-dist": "^5.4.149",
+    "typescript": "5.9",
+    "typescript-eslint": "^8.72.1"
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "module": "commonjs", "moduleResolution": "node", "outDir": "out-test", "noUnusedLocals": false },
+  "include": ["src/text/**/*.ts", "src/util/wav.ts", "src/tts/kokoroText.ts", "src/tts/npz.ts", "src/pdf/pdfLayout.ts", "src/follow/transcriptTail.ts", "src/player/buffering.ts", "src/tts/stats.ts", "src/player/systemAudio.ts", "test/**/*.ts"]
+}
