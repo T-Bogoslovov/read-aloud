@@ -1,6 +1,9 @@
 import * as vscode from 'vscode';
 import * as crypto from 'crypto';
 
+/** One sentence for the panel's text view, with its display formatting. */
+export interface ScriptItem { text: string; block?: string; level?: number; marker?: string; blockStart?: boolean; marks?: Array<{ text: string; kind: string }> }
+
 export type ToWebview =
   | { type: 'load'; index: number; total: number; text: string; wav: ArrayBuffer; title: string; page?: number; autoplay: boolean }
   | { type: 'preload'; index: number; total: number; text: string; wav: ArrayBuffer; page?: number }
@@ -9,8 +12,8 @@ export type ToWebview =
   | { type: 'stop'; text?: string }
   | { type: 'rate'; rate: number }
   | { type: 'playing'; playing: boolean }
-  | { type: 'script'; texts: string[] }
-  | { type: 'append'; texts: string[] }
+  | { type: 'script'; items: ScriptItem[] }
+  | { type: 'append'; items: ScriptItem[] }
   | { type: 'status'; text: string; index?: number; total?: number; title?: string }
   | { type: 'sentence'; index: number; total: number; text: string; page?: number }
   | { type: 'config'; provider: string; voice: string; voices: Array<{ id: string; label: string }>; kokoroSpeed: number; stopOnEditorChange: boolean; announcePages: boolean; codeBlocks: string; following: boolean; output: string; readSummaries: boolean; footer: string };
@@ -109,83 +112,84 @@ export class PlaybackPanel {
 <body>
 <main>
   <header>
-    <div class="brand"><svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path d="M2 6h3l4-3v10l-4-3H2z"/><path d="M11 5.5a3.5 3.5 0 0 1 0 5M12.5 3.5a6 6 0 0 1 0 9" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>Read Aloud</div>
-    <div class="title" id="title"></div>
+    <div class="brand"><svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path d="M2 6h3l4-3v10l-4-3H2z"/><path d="M11 5.5a3.5 3.5 0 0 1 0 5M12.5 3.5a6 6 0 0 1 0 9" fill="none" stroke="currentColor" stroke-width="1.2"/></svg><span class="title" id="title">Read Aloud</span></div>
     <span class="live" id="live" hidden>● live</span>
     <div class="counter" id="counter"></div>
+    <button type="button" class="icon" id="expand" aria-expanded="false" aria-controls="script" title="Show more text">${icon('M3 6l5 5 5-5', 16)}</button>
   </header>
 
-  <section class="card now" aria-label="Now reading">
-    <div class="eyebrow">Now reading</div>
-    <div class="script" id="script" tabindex="0" aria-label="Text being read; click a sentence to jump to it"></div>
-    <p class="sentence" id="sentence" aria-live="polite">Select text and press Play, or use the buttons below.</p>
+  <section class="now" aria-label="Now reading">
+    <div class="script" id="script" tabindex="0" aria-label="Text being read; click a sentence to jump to it" hidden></div>
+    <p class="sentence" id="sentence" aria-live="polite">Select text and press Play.</p>
     <div class="progress"><div id="bar"></div></div>
   </section>
+
+  <section class="bar" aria-label="Playback">
+    <div class="group">
+      <button type="button" class="icon" id="prev" aria-label="Previous sentence" title="Previous sentence (Left arrow)">${icon('M6 6h2v12H6zM20 6v12L9 12z')}</button>
+      <button type="button" class="icon primary" id="toggle" aria-label="Play" title="Play (Ctrl+Alt+P)">${icon('M7 4v16l13-8z')}</button>
+      <button type="button" class="icon" id="stop" aria-label="Stop" title="Stop (Ctrl+Alt+S)">${icon('M5 5h14v14H5z')}</button>
+      <button type="button" class="icon" id="next" aria-label="Next sentence" title="Next sentence (Right arrow)">${icon('M16 6h2v12h-2zM4 6v12l11-6z')}</button>
+    </div>
+    <div class="group" role="group" aria-label="Speed">
+      <button type="button" class="icon" id="slower" aria-label="Slower" title="Slower (Ctrl+Alt+-)">−</button>
+      <strong id="rateLabel" title="Playback speed">1.0×</strong>
+      <button type="button" class="icon" id="faster" aria-label="Faster" title="Faster (Ctrl+Alt+=)">+</button>
+    </div>
+    <div class="group voice">
+      <label class="sr" for="voice">Voice</label>
+      <select id="voice"><option>Voice…</option></select>
+      <button type="button" class="icon" id="preview" aria-label="Preview voice" title="Play a sample of this voice">${icon('M2 6h3l4-3v10l-4-3H2zM11 5.5a3.5 3.5 0 0 1 0 5', 16)}</button>
+    </div>
+  </section>
+
   <div class="status" id="status"></div>
   <div class="note" id="blocked" hidden role="status">
-    <div><strong>Sound needs one click.</strong> VS Code asks this once each time this panel is opened. Press <kbd>Space</kbd> or click anywhere here to enable sound, or use the system's audio output instead (no clicks needed; pause restarts the sentence).</div>
-    <div class="note-actions">
+    <span><strong>Sound needs one click</strong> (once each time this panel opens). Press Space or click here.</span>
+    <span class="note-actions">
       <button type="button" id="enableSound" class="primary">Enable sound</button>
-      <button type="button" id="useSystemAudio">Use system audio instead</button>
+      <button type="button" id="useSystemAudio" title="Play through the operating system: no clicks needed; pause restarts the sentence">Use system audio</button>
+    </span>
+  </div>
+
+  <details class="settings" id="settings">
+    <summary>Settings and more</summary>
+    <div class="row">
+      <label for="rate">Speed</label>
+      <input type="range" id="rate" min="0.5" max="3" step="0.1" value="1">
     </div>
-  </div>
-
-  <section class="controls" aria-label="Playback">
-    <button type="button" id="prev" aria-label="Previous sentence" title="Previous sentence (Left arrow)">${icon('M6 6h2v12H6zM20 6v12L9 12z')}</button>
-    <button type="button" id="toggle" class="primary" aria-label="Play" title="Play (Ctrl+Alt+P)">${icon('M7 4v16l13-8z')}</button>
-    <button type="button" id="stop" aria-label="Stop" title="Stop (Ctrl+Alt+S)">${icon('M5 5h14v14H5z')}</button>
-    <button type="button" id="next" aria-label="Next sentence" title="Next sentence (Right arrow)">${icon('M16 6h2v12h-2zM4 6v12l11-6z')}</button>
-  </section>
-
-  <div class="row">
-    <label for="rate">Speed <strong id="rateLabel">1.0×</strong></label>
-    <button type="button" class="step" id="slower" aria-label="Slower" title="Slower (Ctrl+Alt+-)">−</button>
-    <input type="range" id="rate" min="0.5" max="3" step="0.1" value="1">
-    <button type="button" class="step" id="faster" aria-label="Faster" title="Faster (Ctrl+Alt+=)">+</button>
-  </div>
-
-  <section class="card grid2" aria-label="Voice">
-    <div class="field wide">
-      <label for="voice">Voice</label>
-      <div class="inline">
-        <select id="voice"><option>Loading voices…</option></select>
-        <button type="button" id="preview" title="Play a sample of this voice">${icon('M2 6h3l4-3v10l-4-3H2zM11 5.5a3.5 3.5 0 0 1 0 5', 16)}Preview</button>
+    <section class="grid2" aria-label="Voice engine">
+      <div class="field">
+        <label for="output">Output</label>
+        <select id="output">
+          <option value="panel">This panel (gapless, needs one click)</option>
+          <option value="system">System audio (no clicks; pause restarts sentence)</option>
+        </select>
       </div>
-    </div>
-    <div class="field">
-      <label for="output">Output</label>
-      <select id="output">
-        <option value="panel">This panel (gapless, needs one click)</option>
-        <option value="system">System audio (no clicks; pause restarts sentence)</option>
-      </select>
-    </div>
-    <div class="field">
-      <label for="engine">Engine</label>
-      <select id="engine">
-        <option value="kokoro">Kokoro (neural, offline)</option>
-        <option value="native">System voice</option>
-        <option value="piper">Piper</option>
-      </select>
-    </div>
-    <div class="field">
-      <label for="kspeed">Speaking rate (Kokoro) <strong id="kspeedLabel">1.0</strong></label>
-      <input type="range" id="kspeed" min="0.5" max="2" step="0.1" value="1">
-    </div>
-  </section>
-
-  <section class="grid3 actions" aria-label="Read">
-    <button type="button" id="follow" data-command="readAloud.followClaude" title="Read Claude Code replies as they appear (Ctrl+Alt+L)"><span>Follow Claude</span><small>Ctrl+Alt+L</small></button>
-    ${action('readAloud.readSelection', 'Read selection', 'Ctrl+Alt+R')}
-    ${action('readAloud.readFromCursor', 'From cursor', 'Ctrl+Alt+Shift+R')}
-    ${action('readAloud.readFile', 'Whole file', 'Ctrl+Alt+Shift+F')}
-    ${action('readAloud.readClipboard', 'Clipboard text')}
-    ${action('readAloud.readPdf', 'PDF…')}
-    ${action('readAloud.testVoice', 'Test voice')}
-  </section>
-
-  <section class="card options" id="options" aria-label="Options">
-    <button type="button" id="optionsToggle" aria-expanded="true" aria-controls="optionsBody">${icon('M3 6l5 5 5-5', 16)}Options</button>
-    <div class="body" id="optionsBody">
+      <div class="field">
+        <label for="engine">Engine</label>
+        <select id="engine">
+          <option value="kokoro">Kokoro (neural, offline)</option>
+          <option value="native">System voice</option>
+          <option value="piper">Piper</option>
+        </select>
+      </div>
+      <div class="field wide">
+        <label for="kspeed">Speaking rate (Kokoro) <strong id="kspeedLabel">1.0</strong></label>
+        <input type="range" id="kspeed" min="0.5" max="2" step="0.1" value="1">
+      </div>
+    </section>
+    <section class="grid3 actions" aria-label="Read">
+      <button type="button" id="follow" data-command="readAloud.followClaude" title="Read Claude Code replies as they appear (Ctrl+Alt+L)"><span>Follow Claude</span><small>Ctrl+Alt+L</small></button>
+      ${action('readAloud.readSelection', 'Read selection', 'Ctrl+Alt+R')}
+      ${action('readAloud.readFromCursor', 'From cursor', 'Ctrl+Alt+Shift+R')}
+      ${action('readAloud.readFile', 'Whole file', 'Ctrl+Alt+Shift+F')}
+      ${action('readAloud.readClipboard', 'Clipboard text')}
+      ${action('readAloud.readPdf', 'PDF…')}
+      ${action('readAloud.testVoice', 'Test voice')}
+      <button type="button" data-command="readAloud.benchmarkVoice" title="Measure synthesis speed and try the faster 8-bit model"><span>Benchmark</span></button>
+    </section>
+    <section class="options" id="options" aria-label="Options">
       <label class="opt"><span>Stop when I switch to another file</span><input type="checkbox" id="optStop"></label>
       <label class="opt"><span>Say the page number in PDFs</span><input type="checkbox" id="optPages"></label>
       <label class="opt"><span>Follow Claude: also read progress summaries</span><input type="checkbox" id="optSummaries"></label>
@@ -197,14 +201,9 @@ export class PlaybackPanel {
           <option value="read">Read the code</option>
         </select>
       </div>
-      <div class="opt">
-        <span>Gaps between sentences? Measure this computer's voice speed.</span>
-        <button type="button" data-command="readAloud.benchmarkVoice" title="Measure synthesis speed and try the faster 8-bit model">Benchmark</button>
-      </div>
-    </div>
-  </section>
-
-  <footer id="footer"><span class="dot" aria-hidden="true"></span><span class="text">Everything runs on this computer.</span></footer>
+    </section>
+    <footer id="footer"><span class="dot" aria-hidden="true"></span><span class="text">Everything runs on this computer.</span></footer>
+  </details>
   <audio id="audio" preload="auto"></audio>
   <audio id="audio2" preload="auto"></audio>
 </main>

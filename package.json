@@ -2,7 +2,7 @@
   "name": "read-aloud",
   "displayName": "Read Aloud",
   "description": "Read Markdown, text, code and PDF files aloud in a natural neural voice (Kokoro). Free, open source, and fully offline after a one-time model download.",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "publisher": "read-aloud-oss",
   "license": "MIT",
   "private": true,

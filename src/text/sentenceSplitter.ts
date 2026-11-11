@@ -1,4 +1,4 @@
-import { Segment, Sentence } from './segments';
+import { Mark, Segment, Sentence } from './segments';
 
 export interface SplitOptions {
   /** Sentences longer than this are split at punctuation / spaces. */
@@ -102,6 +102,7 @@ export function splitSentences(segments: Segment[], options: SplitOptions = {}):
   const flush = () => {
     if (text.length === 0) return;
     const spans = sentenceSpans(text).flatMap(([a, b]) => chunkSpan(text, a, b, maxLength));
+    let first = true;
     for (const [a0, b0] of spans) {
       let a = a0;
       let b = b0;
@@ -111,9 +112,19 @@ export function splitSentences(segments: Segment[], options: SplitOptions = {}):
       const sentenceText = text.slice(a, b);
       const segA = segments[originSeg[a]];
       const segB = segments[originSeg[b - 1]];
+      // Display hints: block kind from the first segment, inline marks from every segment touched.
+      let marks: Mark[] | undefined;
+      for (let si = originSeg[a]; si <= originSeg[b - 1]; si++) {
+        for (const mk of segments[si].marks ?? []) if (sentenceText.includes(mk.text)) (marks ??= []).push(mk);
+      }
       sentences.push({
         text: sentenceText,
         page: segA.page,
+        block: segA.block,
+        level: segA.level,
+        marker: first ? segA.marker : undefined,
+        blockStart: first,
+        marks,
         range: {
           startLine: segA.line,
           startChar: segA.exact ? segA.startChar + originOff[a] : null,
@@ -121,6 +132,7 @@ export function splitSentences(segments: Segment[], options: SplitOptions = {}):
           endChar: segB.exact ? segB.startChar + originOff[b - 1] + 1 : null,
         },
       });
+      first = false;
     }
     text = '';
     originSeg = [];
@@ -169,8 +181,10 @@ export function splitForFastStart(sentence: Sentence, maxLead = 110, minLead = 4
   const r = sentence.range;
   const exactSingleLine = r && r.startLine === r.endLine && r.startChar !== null && r.endChar !== null;
   const restStart = t.length - rest.length;
+  const hints = { block: sentence.block, level: sentence.level };
+  const marksIn = (t2: string) => sentence.marks?.filter((mk) => t2.includes(mk.text));
   return [
-    { text: lead, page: sentence.page, range: r && exactSingleLine ? { ...r, endChar: r.startChar! + lead.length } : r },
-    { text: rest, page: sentence.page, range: r && exactSingleLine ? { ...r, startChar: r.startChar! + restStart } : r },
+    { ...hints, text: lead, page: sentence.page, marker: sentence.marker, blockStart: sentence.blockStart, marks: marksIn(lead), range: r && exactSingleLine ? { ...r, endChar: r.startChar! + lead.length } : r },
+    { ...hints, text: rest, page: sentence.page, blockStart: false, marks: marksIn(rest), range: r && exactSingleLine ? { ...r, startChar: r.startChar! + restStart } : r },
   ];
 }
