@@ -1,4 +1,4 @@
-import { Segment } from './segments';
+import { DisplayHints, Mark, Segment } from './segments';
 
 export type CodeBlockMode = 'announce' | 'skip' | 'read';
 
@@ -61,6 +61,30 @@ export function stripInline(input: string): string {
   return s.replace(/[ \t]+/g, ' ').trim();
 }
 
+/** Inline-formatted runs of a Markdown line (bold, italic, code, link text), as plain display text. */
+export function collectMarks(line: string): Mark[] {
+  const marks: Mark[] = [];
+  const seen = new Set<string>();
+  const add = (raw: string, kind: Mark['kind']) => {
+    const text = stripInline(raw);
+    if (text.length < 1 || seen.has(`${kind}:${text}`)) return;
+    seen.add(`${kind}:${text}`);
+    marks.push({ text, kind });
+  };
+  let m: RegExpExecArray | null;
+  const code = /`{1,3}([^`]+)`{1,3}/g;
+  while ((m = code.exec(line)) !== null) add(m[1], 'code');
+  const noCode = line.replace(/`{1,3}[^`]*`{1,3}/g, ' ');
+  const bold = /\*\*([^*]+)\*\*|(?:^|[^\w])__([^_]+)__(?!\w)/g;
+  while ((m = bold.exec(noCode)) !== null) add(m[1] ?? m[2], 'bold');
+  const noBold = noCode.replace(/\*\*[^*]+\*\*/g, ' ').replace(/__[^_]+__/g, ' ');
+  const italic = /(?:^|[^*\w])\*([^*\n]+?)\*(?!\w)|(?:^|[^\w])_([^_\n]+?)_(?!\w)/g;
+  while ((m = italic.exec(noBold)) !== null) add(m[1] ?? m[2], 'italic');
+  const link = /(?<!!)\[([^\]]+)\]\([^)]*\)/g;
+  while ((m = link.exec(noCode)) !== null) add(m[1], 'link');
+  return marks;
+}
+
 const FENCE_RE = /^\s{0,3}(`{3,}|~{3,})/;
 const HEADING_RE = /^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$/;
 const HR_RE = /^\s{0,3}([-*_])(\s*\1){2,}\s*$/;
@@ -112,7 +136,7 @@ export function markdownToSegments(lines: string[], options: MarkdownOptions = {
   let inFrontMatter = false;
   let inHtmlComment = false;
 
-  const push = (index: number, text: string, blockEnd: boolean, sourceLine: string) => {
+  const push = (index: number, text: string, blockEnd: boolean, sourceLine: string, hints: DisplayHints = {}) => {
     if (text.trim() === '') return;
     const base = index === 0 ? firstLineOffset : 0;
     const exactIdx = sourceLine.indexOf(text);
@@ -123,6 +147,7 @@ export function markdownToSegments(lines: string[], options: MarkdownOptions = {
       startChar: exact ? base + exactIdx : base,
       exact,
       blockEnd,
+      ...hints,
     });
   };
 
@@ -148,7 +173,7 @@ export function markdownToSegments(lines: string[], options: MarkdownOptions = {
         }
         inFence = null;
       } else if (codeBlocks === 'read') {
-        push(i, raw.trim(), true, raw);
+        push(i, raw.trim(), true, raw, { block: 'code' });
         fenceHadContent = true;
       } else {
         fenceHadContent = fenceHadContent || raw.trim() !== '';
@@ -165,18 +190,18 @@ export function markdownToSegments(lines: string[], options: MarkdownOptions = {
 
     // Indented code (4 spaces) that is not part of a list continuation.
     if (INDENTED_CODE_RE.test(raw) && (i === 0 || lines[i - 1].trim() === '')) {
-      if (codeBlocks === 'read') push(i, trimmed, true, raw);
+      if (codeBlocks === 'read') push(i, trimmed, true, raw, { block: 'code' });
       else if (codeBlocks === 'announce') segments.push({ text: 'Code block skipped.', line: lineOffset + i, startChar: 0, exact: false, blockEnd: true });
       // skip following indented lines
       while (i + 1 < lines.length && (INDENTED_CODE_RE.test(lines[i + 1]) || lines[i + 1].trim() === '')) {
-        if (codeBlocks === 'read' && lines[i + 1].trim() !== '') push(i + 1, lines[i + 1].trim(), true, lines[i + 1]);
+        if (codeBlocks === 'read' && lines[i + 1].trim() !== '') push(i + 1, lines[i + 1].trim(), true, lines[i + 1], { block: 'code' });
         i++;
       }
       continue;
     }
 
     const heading = HEADING_RE.exec(raw);
-    if (heading) { push(i, stripInline(heading[2]), true, raw); continue; }
+    if (heading) { push(i, stripInline(heading[2]), true, raw, { block: 'heading', level: heading[1].length, marks: collectMarks(heading[2]) }); continue; }
 
     // Tables.
     if (isTableRow(raw)) {
@@ -185,24 +210,31 @@ export function markdownToSegments(lines: string[], options: MarkdownOptions = {
       if (cells.length === 0) continue;
       const isHeader = next !== undefined && TABLE_SEP_RE.test(next);
       if (isHeader) {
-        push(i, `Table with columns: ${cells.join(', ')}.`, true, raw);
+        push(i, `Table with columns: ${cells.join(', ')}.`, true, raw, { block: 'table' });
       } else {
-        push(i, `${cells.join(', ')}.`, true, raw);
+        push(i, `${cells.join(', ')}.`, true, raw, { block: 'table', marks: collectMarks(raw) });
       }
       continue;
     }
 
     let body = raw;
+    const hints: DisplayHints = { block: 'paragraph' };
     // Blockquotes (possibly nested).
-    while (BLOCKQUOTE_RE.test(body)) body = body.replace(BLOCKQUOTE_RE, '');
+    while (BLOCKQUOTE_RE.test(body)) { body = body.replace(BLOCKQUOTE_RE, ''); hints.block = 'quote'; }
     // List items.
     const list = LIST_RE.exec(body);
-    if (list) body = list[3];
+    if (list) {
+      body = list[3];
+      hints.block = /^\d/.test(list[2]) ? 'numbered' : 'bullet';
+      hints.marker = list[2];
+      hints.level = Math.floor(list[1].replace(/\t/g, '  ').length / 2);
+    }
+    hints.marks = collectMarks(body);
 
     const text = stripInline(body);
     if (text === '') continue;
     const blockEnd = nextStartsBlock || /^\s{0,3}#{1,6}\s/.test(next ?? '') || (next !== undefined && SETEXT_RE.test(next));
-    push(i, text, blockEnd, raw);
+    push(i, text, blockEnd, raw, hints);
   }
   return segments;
 }

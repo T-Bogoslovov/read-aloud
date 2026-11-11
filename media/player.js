@@ -28,6 +28,7 @@
     const url = URL.createObjectURL(new Blob([bytes], { type: 'audio/wav' }));
     urls[slot] = url;
     const el = players[slot];
+    el.muted = false;
     el.src = url;
     el.playbackRate = parseFloat(rate.value);
     el.load();
@@ -79,39 +80,112 @@
   }
 
   const script = $('script');
+  const expand = $('expand');
+  let items = [];   // {text, block, level, marker, blockStart, marks}
   let spans = [];
   let curSpan = -1;
-  function addScript(texts) {
-    for (const t of texts) {
+  let curBlock = null;
+  let expanded = false;
+  try { expanded = localStorage.getItem('readAloud.expanded') === '1'; } catch {}
+
+  /** Fill `el` with the sentence text, wrapping formatted runs (bold, italic, code, link) in elements. */
+  function renderFormatted(el, item) {
+    el.textContent = '';
+    const text = item.text;
+    const ranges = [];
+    const marks = (item.marks || []).slice().sort((x, y) => y.text.length - x.text.length);
+    for (const mk of marks) {
+      if (!mk.text) continue;
+      let from = 0;
+      for (;;) {
+        const at = text.indexOf(mk.text, from);
+        if (at < 0) break;
+        const end = at + mk.text.length;
+        if (!ranges.some((r) => at < r.end && end > r.start)) ranges.push({ start: at, end, kind: mk.kind });
+        from = end;
+      }
+    }
+    ranges.sort((x, y) => x.start - y.start);
+    let pos = 0;
+    for (const r of ranges) {
+      if (r.start > pos) el.appendChild(document.createTextNode(text.slice(pos, r.start)));
+      const tag = r.kind === 'bold' ? 'strong' : r.kind === 'italic' ? 'em' : r.kind === 'code' ? 'code' : 'span';
+      const node = document.createElement(tag);
+      node.className = 'mk ' + r.kind;
+      node.textContent = text.slice(r.start, r.end);
+      el.appendChild(node);
+      pos = r.end;
+    }
+    if (pos < text.length) el.appendChild(document.createTextNode(text.slice(pos)));
+  }
+
+  function addScript(more) {
+    for (const raw of more) {
+      const item = typeof raw === 'string' ? { text: raw } : raw;
+      const i = items.length;
+      items.push(item);
+      if (!curBlock || item.blockStart) {
+        curBlock = document.createElement('div');
+        const kind = item.block || 'paragraph';
+        curBlock.className = 'blk ' + kind + (kind === 'heading' ? ' l' + (item.level || 1) : '') + ((kind === 'bullet' || kind === 'numbered') && item.level ? ' indent' + Math.min(2, item.level) : '');
+        if (kind === 'bullet') curBlock.dataset.marker = '•';
+        if (kind === 'numbered') curBlock.dataset.marker = item.marker || '';
+        script.appendChild(curBlock);
+      }
       const el = document.createElement('span');
-      el.textContent = t + ' ';
-      const i = spans.length;
+      el.className = 'sent';
+      renderFormatted(el, item);
       el.addEventListener('click', () => vscode.postMessage({ type: 'seek', index: i }));
-      script.appendChild(el);
+      curBlock.appendChild(el);
+      curBlock.appendChild(document.createTextNode(' '));
       spans.push(el);
     }
-    script.classList.toggle('on', spans.length > 0);
+    applyExpanded();
   }
-  function setScript(texts) { script.textContent = ''; spans = []; curSpan = -1; addScript(texts); }
+  function setScript(list) { script.textContent = ''; items = []; spans = []; curSpan = -1; curBlock = null; addScript(list); }
+
+  /** Collapsed: one clamped current sentence. Expanded: a few formatted sentences with the current one highlighted. */
+  function applyExpanded() {
+    const show = expanded && spans.length > 0;
+    script.hidden = !show;
+    sentence.classList.toggle('sr', show);
+    expand.setAttribute('aria-expanded', String(expanded));
+    expand.title = expanded ? 'Show one line' : 'Show more text';
+    if (show && curSpan >= 0) scrollToCurrent();
+  }
+  function scrollToCurrent() {
+    const el = spans[curSpan];
+    if (!el) return;
+    const top = el.offsetTop - script.offsetTop;
+    if (top < script.scrollTop + 16 || top + el.offsetHeight > script.scrollTop + script.clientHeight - 16) script.scrollTop = Math.max(0, top - script.clientHeight / 3);
+  }
+  expand.addEventListener('click', () => {
+    expanded = !expanded;
+    try { localStorage.setItem('readAloud.expanded', expanded ? '1' : '0'); } catch {}
+    applyExpanded();
+  });
+
   /** Highlight the sentence being read and keep it in view. */
   function markCurrent(index) {
     if (!spans.length || index === curSpan) return;
     const from = Math.min(curSpan < 0 ? 0 : curSpan, index), to = Math.max(curSpan, index);
     for (let i = from; i <= to && i < spans.length; i++) { spans[i].classList.toggle('done', i < index); spans[i].classList.remove('cur'); }
-    if (spans[index]) {
-      spans[index].classList.add('cur');
-      const el = spans[index];
-      const top = el.offsetTop - script.offsetTop;
-      if (top < script.scrollTop + 20 || top + el.offsetHeight > script.scrollTop + script.clientHeight - 20) script.scrollTop = Math.max(0, top - script.clientHeight / 3);
-    }
+    if (spans[index]) spans[index].classList.add('cur');
     curSpan = index;
+    if (!script.hidden) scrollToCurrent();
+  }
+
+  function setCounterOnly(index, total) {
+    counter.textContent = total ? (index + 1) + ' / ' + total : '';
+    bar.style.width = total ? Math.round(((index + 1) / total) * 100) + '%' : '0%';
   }
 
   function showSentence(index, total, text, page) {
     markCurrent(index);
     counter.textContent = total ? (index + 1) + ' / ' + total + (page ? ' · page ' + page : '') : '';
     bar.style.width = total ? Math.round(((index + 1) / total) * 100) + '%' : '0%';
-    sentence.textContent = text;
+    if (items[index] && items[index].text === text) renderFormatted(sentence, items[index]);
+    else sentence.textContent = text;
   }
 
   players.forEach((el, slot) => {
@@ -141,14 +215,27 @@
     if (!soundBlocked) return;
     soundBlocked = false;
     blocked.hidden = true;
+    // The click / keyup that completes this same gesture must not toggle playback off again.
     justUnblocked = true;
-    setTimeout(() => { justUnblocked = false; }, 0);
+    setTimeout(() => { justUnblocked = false; }, 600);
     if (e && e.type === 'keydown' && e.key === ' ') e.preventDefault();
+    primeIdleElement();
     if (hasAudio && active().paused) void tryPlay();
+  }
+  const SILENT_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=';
+  /** Let the second <audio> element be started by script later: play it once inside the gesture. */
+  function primeIdleElement() {
+    const slot = 1 - cur;
+    const el = players[slot];
+    if (urls[slot] || el.getAttribute('src')) return;
+    el.muted = true;
+    el.src = SILENT_WAV;
+    const done = () => { el.muted = false; if ((el.getAttribute('src') || '').indexOf('data:') === 0) { el.removeAttribute('src'); el.load(); } };
+    el.play().then(done, done);
   }
   document.addEventListener('pointerdown', onGesture, true);
   document.addEventListener('keydown', onGesture, true);
-  $('enableSound').addEventListener('click', () => { if (hasAudio && active().paused) void tryPlay(); });
+  $('enableSound').addEventListener('click', () => { blocked.hidden = true; if (hasAudio && active().paused) void tryPlay(); });
   $('useSystemAudio').addEventListener('click', () => {
     vscode.postMessage({ type: 'setting', key: 'output', value: 'system' });
     vscode.postMessage({ type: 'restart' });
@@ -181,12 +268,6 @@
   });
 
   // Options
-  $('optionsToggle').addEventListener('click', () => {
-    const collapsed = options.classList.toggle('collapsed');
-    $('optionsToggle').setAttribute('aria-expanded', String(!collapsed));
-    try { localStorage.setItem('readAloud.optionsCollapsed', collapsed ? '1' : '0'); } catch {}
-  });
-  try { if (localStorage.getItem('readAloud.optionsCollapsed') === '1') { options.classList.add('collapsed'); $('optionsToggle').setAttribute('aria-expanded', 'false'); } } catch {}
   optStop.addEventListener('change', () => { if (!suppress) vscode.postMessage({ type: 'setting', key: 'stopOnEditorChange', value: optStop.checked }); });
   optPages.addEventListener('change', () => { if (!suppress) vscode.postMessage({ type: 'setting', key: 'pdf.announcePages', value: optPages.checked }); });
   $('optSummaries').addEventListener('change', () => { if (!suppress) vscode.postMessage({ type: 'setting', key: 'follow.readSummaries', value: $('optSummaries').checked }); });
@@ -209,7 +290,7 @@
         voice.innerHTML = '';
         for (const v of c.voices) {
           const o = document.createElement('option');
-          o.value = v.id; o.textContent = v.label; voice.appendChild(o);
+          o.value = v.id; o.textContent = v.id + (v.label.indexOf('★') >= 0 ? ' ★' : ''); o.title = v.label; voice.appendChild(o);
         }
       }
       if (c.voice) voice.value = c.voice;
@@ -270,12 +351,13 @@
         break;
       case 'rate': setRate(msg.rate, false); break;
       case 'playing': setPlayingUi(!!msg.playing); break;
-      case 'script': setScript(msg.texts || []); break;
-      case 'append': addScript(msg.texts || []); break;
+      case 'script': setScript(msg.items || msg.texts || []); break;
+      case 'append': addScript(msg.items || msg.texts || []); break;
       case 'status':
         status.textContent = msg.text || '';
+        status.title = msg.text || '';
         if (msg.title) title.textContent = msg.title;
-        if (typeof msg.index === 'number' && typeof msg.total === 'number') showSentence(msg.index, msg.total, sentence.textContent || '', undefined);
+        if (typeof msg.index === 'number' && typeof msg.total === 'number') { setCounterOnly(msg.index, msg.total); }
         break;
       case 'config': applyConfig(msg); break;
     }

@@ -4,7 +4,7 @@ import { splitForFastStart } from '../text/sentenceSplitter';
 import { ProviderStatus, SynthesisResult, TtsProvider } from '../tts/provider';
 import { BufferItem, bufferedSeconds, countToKeepInFlight } from './buffering';
 import { AudioSink, SinkMeta, SystemSink } from './systemAudio';
-import { PlaybackPanel } from './panel';
+import { PlaybackPanel, ScriptItem } from './panel';
 import { CancelledError, errorMessage, isCancelled, log } from '../util/log';
 
 export interface ReadingSession {
@@ -25,6 +25,10 @@ export interface PlayerStatus { state: PlayerState; index: number; total: number
 
 /** WAV files at or below this size carry no audible audio (header + 50 ms of silence). */
 const SILENT_WAV_BYTES = 44 + 2400;
+
+function toScriptItem(s: Sentence): ScriptItem {
+  return { text: s.text, block: s.block, level: s.level, marker: s.marker, blockStart: s.blockStart, marks: s.marks };
+}
 
 function toArrayBuffer(buf: Buffer): ArrayBuffer {
   return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
@@ -162,7 +166,7 @@ export class Player implements vscode.Disposable {
     this.setDetail('Preparing voice…');
     await this.panel.show(true);
     if (generation !== this.generation) return;
-    this.panel.post({ type: 'script', texts: sentences.map((x) => x.text) });
+    this.panel.post({ type: 'script', items: sentences.map(toScriptItem) });
     this.panel.post({ type: 'status', text: this.detail, title: session.title, index: this.index, total: sentences.length });
     if (sentences.length > 0) {
       this.panel.post({ type: 'sentence', index: this.index, total: sentences.length, text: sentences[this.index].text, page: sentences[this.index].page });
@@ -183,7 +187,7 @@ export class Player implements vscode.Disposable {
     if (!session || !session.live || this.state === 'idle' || sentences.length === 0) return false;
     const firstNew = session.sentences.length;
     session.sentences.push(...sentences);
-    this.panel.post({ type: 'append', texts: sentences.map((x) => x.text) });
+    this.panel.post({ type: 'append', items: sentences.map(toScriptItem) });
     const generation = this.generation;
     if (this.state === 'waiting') {
       this.index = firstNew;

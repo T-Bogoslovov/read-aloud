@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.2 — 2026-11-11
+
+- Compact mini player: one or two lines of the current sentence, a single control row (previous, play/pause, stop, next, speed, voice with preview) and a status line. The chevron in the header expands the text to a few sentences. Everything else (output, engine, quick actions, options, benchmark) is under "Settings and more".
+- The text view keeps the source formatting: headings, bullets and numbering, quotes, bold, italic, inline code and link text, with the current sentence highlighted and click-to-jump.
+- Fixed: the "Sound needs one click" note was always visible, even while audio played. Fixed: pressing Play to enable sound started and immediately paused playback. The second audio element is now primed by the same gesture, so the next sentence no longer needs another press.
+- Highlighting inside Claude's own chat is not possible: VS Code gives extensions no access to another extension's view.
+
 ## 0.3.1 — 2026-11-10
 
 - Follow Claude can also read the short progress summaries shown between tool calls (lines marked "summary" in the chat). On by default; toggle under Options in the panel or with `readAloud.follow.readSummaries`. Changing it applies the next time Follow is started.

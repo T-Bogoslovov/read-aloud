@@ -56,3 +56,30 @@ test('line offsets are applied', () => {
   assert.equal(segs[1].line, 11);
   assert.equal(segs[1].startChar, 0);
 });
+
+import { collectMarks } from '../src/text/markdownStripper';
+import { splitSentences as split2 } from '../src/text/sentenceSplitter';
+
+test('collectMarks finds bold, italic, code and link text', () => {
+  const marks = collectMarks('**Equipment:** uses `msdyn_workorder`, see [the docs](http://x) and *maybe* snake_case_name.');
+  assert.deepEqual(marks, [
+    { text: 'msdyn_workorder', kind: 'code' },
+    { text: 'Equipment:', kind: 'bold' },
+    { text: 'maybe', kind: 'italic' },
+    { text: 'the docs', kind: 'link' },
+  ]);
+});
+
+test('display hints: block kinds, markers and marks survive sentence splitting; spoken text is unchanged', () => {
+  const md = ['## Plan', '', '1. **First:** do this. Then that.', '- plain `code` item', '', '> quoted'];
+  const sentences = split2(markdownToSegments(md));
+  assert.deepEqual(sentences.map((s) => s.text), ['Plan', 'First: do this.', 'Then that.', 'plain code item', 'quoted']);
+  assert.deepEqual(sentences.map((s) => s.block), ['heading', 'numbered', 'numbered', 'bullet', 'quote']);
+  assert.equal(sentences[0].level, 2);
+  assert.deepEqual(sentences.map((s) => !!s.blockStart), [true, true, false, true, true]);
+  assert.equal(sentences[1].marker, '1.');
+  assert.equal(sentences[2].marker, undefined, 'only the first sentence of an item carries the marker');
+  assert.deepEqual(sentences[1].marks, [{ text: 'First:', kind: 'bold' }]);
+  assert.equal(sentences[2].marks, undefined);
+  assert.deepEqual(sentences[3].marks, [{ text: 'code', kind: 'code' }]);
+});
